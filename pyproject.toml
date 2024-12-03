@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "IrelandML"
+version = "0.1.0"
+description = ""
+authors = ["My name"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+dagster = "^1.0.0"  # Make sure to specify the version!
+dagster-dbt = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.dagster]
+module_name = "IrelandML"
