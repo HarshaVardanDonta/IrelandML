@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import root_mean_squared_error, r2_score
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine, text
 from sklearn.preprocessing import LabelEncoder
@@ -15,7 +15,7 @@ import base64
 
 # Asset for raw data import (hardcoded file path)
 @asset(resource_defs={"db_connection": db_connection_resource}, group_name="salary_trend")
-def raw_data():  # No file_path argument
+def raw_data(): 
     """Import raw data from CSV to PostgreSQL."""
     engine = create_db_connection()
     file_path = r"data\structured_data1.csv"  # Hardcoded file path
@@ -24,52 +24,70 @@ def raw_data():  # No file_path argument
     return df
 
 
-
-
 @asset(resource_defs={"db_connection": db_connection_resource}, non_argument_deps={"raw_data"}, group_name="salary_trend")
-def analysis_results():
+def analysis_results(context):
     """Perform data analysis and return results."""
     engine = create_db_connection()
     with engine.connect() as conn:
         try:
-            result = conn.execute(text("SELECT AVG(Base_Salary) FROM raw_data")) # Wrap in text()
-            avg_value = result.scalar()  # or result.fetchone()[0] if you prefer
+            result = conn.execute(text("SELECT AVG(Base_Salary) FROM raw_data"))
+            avg_value = result.scalar() 
+
+            # Create a histogram
+            df = pd.read_sql("SELECT Base_Salary FROM raw_data", engine)
+            plt.figure()
+            plt.hist(df['Base_Salary'], bins=20)
+            plt.xlabel('Base Salary')
+            plt.ylabel('Frequency')
+            plt.title('Distribution of Base Salaries')
+
+            # Save the plot to a BytesIO object
+            buffer = BytesIO()
+            plt.savefig(buffer, format='png')
+            buffer.seek(0)
+            image_data = base64.b64encode(buffer.read()).decode('utf-8')
+            plt.close()
+
+            # Log the plot as metadata
+            context.log_event(
+                AssetMaterialization(
+                    asset_key="analysis_results",
+                    metadata={
+                        "avg_salary": avg_value,
+                        "salary_distribution": MetadataValue.md(f"<img src='data:image/png;base64,{image_data}'/>"),
+                    }
+                )
+            )
 
         except SQLAlchemyError as e:
-            print(f"Database Error: {e}")  # Log the error appropriately
-            avg_value = None  # Return None on error. Consider other handling.
-            # Consider re-raising the exception if asset failure is desired
-            # raise e
+            print(f"Database Error: {e}") 
+            avg_value = None 
 
+    
 
     return {"avg_value": avg_value}
 
 
 
 
-@asset(resource_defs={"db_connection": db_connection_resource}, non_argument_deps={"raw_data"}, group_name="salary_trend")  # depends on raw_data
+@asset(resource_defs={"db_connection": db_connection_resource}, non_argument_deps={"raw_data"}, group_name="salary_trend")
 def prepared_data(context):
     """Prepare data for prediction and return training and testing data."""
     engine = create_db_connection()
-    # Read data directly from raw_data table
-    query = "SELECT * FROM raw_data"  # Now reads from raw_data
+    query = "SELECT * FROM raw_data" 
     df = pd.read_sql(query, engine)
-    # Create LabelEncoder instance
-    le = LabelEncoder()  # Create a LabelEncoder object *outside* the loop
+    le = LabelEncoder() 
 
-    # Columns to encode using label encoding
     columns_to_encode = ['Department', 'Department_Name', 'Division', 'Gender', 'Grade']
 
     for column in columns_to_encode:
-        if column in df.columns and df[column].dtype == 'object':  # Check if column exists and is of type object
+        if column in df.columns and df[column].dtype == 'object': 
             try:
-                df[column] = le.fit_transform(df[column].astype(str))  # Apply Label Encoding
+                df[column] = le.fit_transform(df[column].astype(str)) 
             except TypeError as e:
                 print(f"Error encoding column {column}: {e}")
-                # Handle the error appropriately, e.g., remove the column or impute values
 
 
-    # Define the target variable
     target_column = "Base_Salary"
     if target_column not in df.columns:
         raise ValueError(f"Target column '{target_column}' not found in DataFrame.")
@@ -77,15 +95,10 @@ def prepared_data(context):
     y = df[target_column]
     X = df.drop(target_column, axis=1)
 
-
-    # Convert all columns in X to numeric if possible.  Replace strings with NaN. Remove rows with NaN values.
     X = X.apply(pd.to_numeric, errors='coerce').dropna()
-
-    # Remove the corresponding y values where X values were removed due to NaN.
     y = y[y.index.isin(X.index)]
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
 
     return X_train, X_test, y_train, y_test
 
@@ -93,21 +106,71 @@ def prepared_data(context):
 
 
 @asset(group_name="salary_trend")
-def prediction_results(prepared_data):  # Receive the tuple from prepared_data
+def prediction_results(prepared_data): 
     X_train, X_test, y_train, y_test = prepared_data
-    model = DecisionTreeRegressor(random_state=42)  # Add random_state for reproducibility
+    model = DecisionTreeRegressor(random_state=42) 
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
     return y_pred
 
 
 @asset(group_name="salary_trend")  
-def model_metrics(prediction_results, prepared_data): # Get data directly here too.
+def model_metrics(context, prediction_results, prepared_data): 
     y_pred = prediction_results
     X_train, X_test, y_train, y_test = prepared_data
-    mse = mean_squared_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    return {"mse": mse, "r2": r2}
+    mse = float(root_mean_squared_error(y_test, y_pred))
+    r2 = float(r2_score(y_test, y_pred))
+
+
+    # Create a scatter plot
+    plt.figure()
+    plt.scatter(y_test, y_pred)
+    plt.xlabel('Actual Base Salary')
+    plt.ylabel('Predicted Base Salary')
+    plt.title('Actual vs. Predicted Base Salary')
+
+    # Save the plot to a BytesIO object
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png')
+    buffer.seek(0)
+    image_data = base64.b64encode(buffer.getvalue())
+    plt.close()
+
+  
+
+    #     # Create line charts for mse and r2
+    # fig, axes = plt.subplots(2, 1, figsize=(8, 6))  # 2 subplots (one for mse, one for r2)
+
+    # # MSE plot
+    # axes[0].plot(mse, marker='o', linestyle='-', color='blue')
+    # axes[0].set_title('Mean Squared Error (MSE) Over Time')
+    # axes[0].set_xlabel('Run')  # Or any relevant x-axis label
+    # axes[0].set_ylabel('MSE')
+
+    # # R-squared plot
+    # axes[1].plot(r2, marker='o', linestyle='-', color='green')
+    # axes[1].set_title('R-squared (R2) Over Time')
+    # axes[1].set_xlabel('Run')  # Or any relevant x-axis label
+    # axes[1].set_ylabel('R2')
+
+    
+    # Convert the image to Markdown to preview it within Dagster
+    md_content = f"![img](data:image/png;base64,{image_data.decode()})"
+    plt.tight_layout()
+    # Log the plot and metrics as metadata
+    context.log_event(
+        AssetMaterialization(
+            asset_key="model_metrics",
+            metadata={
+                "mse": mse,
+                "r2": r2,
+                "actual_vs_predicted_plot": MetadataValue.md(md_content),
+            }
+        )
+    )
+
+
+    return {"mse": mse, "r2": r2, "actual_vs_predicted_plot": image_data}
 
 
 
@@ -120,4 +183,3 @@ def data_pipeline():
     prepared_data()
     prediction_results()
     model_metrics()
-
