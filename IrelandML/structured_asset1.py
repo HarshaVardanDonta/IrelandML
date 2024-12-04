@@ -153,7 +153,7 @@ def model_metrics(context, prediction_results, prepared_data):
     # axes[1].set_xlabel('Run')  # Or any relevant x-axis label
     # axes[1].set_ylabel('R2')
 
-    
+
     # Convert the image to Markdown to preview it within Dagster
     md_content = f"![img](data:image/png;base64,{image_data.decode()})"
     plt.tight_layout()
@@ -170,7 +170,7 @@ def model_metrics(context, prediction_results, prepared_data):
     )
 
 
-    return {"mse": mse, "r2": r2, "actual_vs_predicted_plot": image_data}
+    return {"mse": mse, "r2": r2, "actual_vs_predicted_plot": MetadataValue.md(md_content)}
 
 
 

@@ -1,16 +1,17 @@
-from dagster import job, op, asset, ResourceDefinition
+from dagster import job, op, asset, ResourceDefinition, Output, AssetMaterialization, MetadataValue
 from sqlalchemy import create_engine
 import pandas as pd
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import root_mean_squared_error, r2_score
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine, text
 from sklearn.preprocessing import LabelEncoder
 from .resources import db_connection_resource, create_db_connection
-
-
+import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
 
 @asset(resource_defs={"db_connection": db_connection_resource}, group_name="mortality")
 def raw_data_2():
@@ -89,11 +90,64 @@ def prediction_results_2(prepared_data_2): # depends on prepared_data_2
 
 
 @asset(group_name="mortality")
-def model_metrics_2(prediction_results_2, prepared_data_2):
+def model_metrics_2(context, prediction_results_2, prepared_data_2):
     y_pred = prediction_results_2
     X_train, X_test, y_train, y_test = prepared_data_2
-    mse = mean_squared_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
+    mse = float(root_mean_squared_error(y_test, y_pred))
+    r2 = float(r2_score(y_test, y_pred))
+
+    plt.figure()
+    plt.scatter(y_test, y_pred)
+    plt.xlabel('Actual Average Life Expectancy')
+    plt.ylabel('Predicted Average Life Expectancy')
+    plt.title('Actual vs. Predicted Average Life Expectancy')
+
+    # Save and log the plot
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png')
+    buffer.seek(0)
+    image_data = base64.b64encode(buffer.getvalue())
+    md_content = f"![img](data:image/png;base64,{image_data.decode()})"
+    plt.close()
+
+    context.log_event(
+        AssetMaterialization(
+            asset_key="model_metrics_2",
+            metadata={
+                "mse": mse,
+                "r2": r2,
+                "actual_vs_predicted_plot": MetadataValue.md(md_content),
+            }
+        )
+    )
+
+    # 2. Residual plot
+    plt.figure()
+    residuals = y_test - y_pred
+    plt.scatter(y_pred, residuals)
+    plt.xlabel('Predicted Average Life Expectancy')
+    plt.ylabel('Residuals')
+    plt.title('Residual Plot')
+    plt.axhline(y=0, color='r', linestyle='--')
+
+    # Save and log the plot
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png')
+    buffer.seek(0)
+    image_data = base64.b64encode(buffer.getvalue())
+    md_content = f"![img](data:image/png;base64,{image_data.decode()})"
+    plt.close()
+
+    context.log_event(
+        AssetMaterialization(
+            asset_key="model_metrics_2",
+            metadata={
+                "residual_plot": MetadataValue.md(md_content),
+            }
+        )
+    )
+
+
     return {"mse": mse, "r2": r2}
 
 
