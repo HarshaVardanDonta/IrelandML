@@ -1,4 +1,4 @@
-from dagster import job, op, asset, ResourceDefinition
+from dagster import job, op, asset, ResourceDefinition, Output, AssetMaterialization, MetadataValue
 from sqlalchemy import create_engine
 import pandas as pd
 from sklearn.tree import DecisionTreeRegressor
@@ -8,11 +8,10 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine, text
 from sklearn.preprocessing import LabelEncoder
-from .resources import db_connection_resource 
-
-
-
-
+from .resources import db_connection_resource, create_db_connection
+import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
 
 # Asset for raw data import (hardcoded file path)
 @asset(resource_defs={"db_connection": db_connection_resource}, group_name="salary_trend")
@@ -49,7 +48,7 @@ def analysis_results():
 
 
 @asset(resource_defs={"db_connection": db_connection_resource}, non_argument_deps={"raw_data"}, group_name="salary_trend")  # depends on raw_data
-def prepared_data():
+def prepared_data(context):
     """Prepare data for prediction and return training and testing data."""
     engine = create_db_connection()
     # Read data directly from raw_data table

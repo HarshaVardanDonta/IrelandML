@@ -8,8 +8,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine, text
 from sklearn.preprocessing import LabelEncoder
-from .resources import db_connection_resource 
-
+from .resources import db_connection_resource, create_db_connection
 
 
 

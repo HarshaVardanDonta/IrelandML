@@ -9,6 +9,7 @@ readme = "README.md"
 python = "^3.11"
 dagster = "^1.0.0"  # Make sure to specify the version!
 dagster-dbt = "*"
+dagster-webserver = "*"
 
 [build-system]
 requires = ["poetry-core"]
